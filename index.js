@@ -4,45 +4,35 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const jwt = require("jsonwebtoken");
-const fs = require("fs");
-const path = require("path");
+const { uploadArquivo, gerarLink } = require("./b2");
 
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || 3000);
+const ADMIN_USER = String(process.env.ADMIN_USER || "admin");
+const ADMIN_PASS = String(process.env.ADMIN_PASS || "");
+const JWT_SECRET = String(process.env.JWT_SECRET || "");
 
-const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASS = process.env.ADMIN_PASS || "123456";
-const JWT_SECRET = process.env.JWT_SECRET || "123456";
-
-const STORAGE_DIR = path.join(__dirname, "storage");
-const META_FILE = path.join(STORAGE_DIR, "meta.json");
-
-if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR);
-
-function saveMeta(data) {
-  fs.writeFileSync(META_FILE, JSON.stringify(data, null, 2));
-}
-
-function loadMeta() {
-  if (!fs.existsSync(META_FILE)) return {};
-  return JSON.parse(fs.readFileSync(META_FILE));
-}
-
-const upload = multer({ dest: STORAGE_DIR });
+const upload = multer({ storage: multer.memoryStorage() });
 
 function auth(req, res, next) {
   try {
-    const token = req.headers.authorization?.split(" ")[1];
+    const authHeader = String(req.headers.authorization || "");
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+
+    if (!token) {
+      return res.status(401).json({ ok: false, error: "Token ausente" });
+    }
+
     jwt.verify(token, JWT_SECRET);
     next();
-  } catch {
-    res.status(401).json({ error: "Não autorizado" });
+  } catch (error) {
+    return res.status(401).json({ ok: false, error: "Não autorizado" });
   }
 }
 
@@ -51,38 +41,65 @@ app.get("/health", (req, res) => {
 });
 
 app.post("/admin/login", (req, res) => {
-  const { username, password } = req.body;
+  try {
+    const username = String(req.body.username || "").trim();
+    const password = String(req.body.password || "").trim();
 
-  if (username === ADMIN_USER && password === ADMIN_PASS) {
-    const token = jwt.sign({ user: "admin" }, JWT_SECRET);
-    return res.json({ token });
+    if (username !== ADMIN_USER || password !== ADMIN_PASS) {
+      return res.status(401).json({ ok: false, error: "Login inválido" });
+    }
+
+    const token = jwt.sign({ user: "admin" }, JWT_SECRET, { expiresIn: "12h" });
+
+    return res.json({
+      ok: true,
+      token
+    });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: "Erro no login" });
   }
-
-  res.status(401).json({ error: "Login inválido" });
 });
 
-app.post("/admin/upload", auth, upload.single("apk"), (req, res) => {
-  const meta = loadMeta();
+app.post("/upload-apk", auth, upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ ok: false, error: "Envie um arquivo APK" });
+    }
 
-  meta.file = req.file.filename;
+    const nome = `apk/${Date.now()}-${req.file.originalname}`;
 
-  saveMeta(meta);
+    await uploadArquivo(nome, req.file.buffer, req.file.mimetype);
 
-  res.json({ ok: true });
+    return res.json({
+      ok: true,
+      arquivo: nome
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, error: "Erro ao enviar APK" });
+  }
 });
 
-app.get("/download", (req, res) => {
-  const meta = loadMeta();
+app.get("/baixar-apk", async (req, res) => {
+  try {
+    const arquivo = String(req.query.arquivo || "").trim();
 
-  if (!meta.file) {
-    return res.status(404).send("Nenhum arquivo");
+    if (!arquivo) {
+      return res.status(400).json({ ok: false, error: "Arquivo não informado" });
+    }
+
+    const url = await gerarLink(arquivo);
+
+    return res.json({
+      ok: true,
+      url
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, error: "Erro ao gerar link" });
   }
-
-  const filePath = path.join(STORAGE_DIR, meta.file);
-
-  res.download(filePath);
 });
 
 app.listen(PORT, () => {
-  console.log("Servidor rodando");
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
