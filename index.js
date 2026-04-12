@@ -18,6 +18,16 @@ const ADMIN_USER = String(process.env.ADMIN_USER || "admin");
 const ADMIN_PASS = String(process.env.ADMIN_PASS || "");
 const JWT_SECRET = String(process.env.JWT_SECRET || "");
 
+const APP_CELULAR_ARQUIVO = String(
+  process.env.APP_CELULAR_ARQUIVO || "AppVendasCelularV1.0.apk"
+);
+const APP_MAQUININHA_ARQUIVO = String(
+  process.env.APP_MAQUININHA_ARQUIVO || "AppMaquininhaV1.0.apk"
+);
+const WEBVENDAS_URL = String(
+  process.env.WEBVENDAS_URL || "https://vendas.reinodasorte.com.br"
+);
+
 const upload = multer({ storage: multer.memoryStorage() });
 
 function auth(req, res, next) {
@@ -97,6 +107,35 @@ app.get("/baixar-apk", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ ok: false, error: "Erro ao gerar link" });
+  }
+});
+
+app.get("/app/celular", async (req, res) => {
+  try {
+    const url = await gerarLink(APP_CELULAR_ARQUIVO);
+    return res.redirect(url);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Erro ao liberar APK do celular");
+  }
+});
+
+app.get("/app/maquininha", async (req, res) => {
+  try {
+    const url = await gerarLink(APP_MAQUININHA_ARQUIVO);
+    return res.redirect(url);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Erro ao liberar APK da maquininha");
+  }
+});
+
+app.get("/app/webvendas", async (req, res) => {
+  try {
+    return res.redirect(WEBVENDAS_URL);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Erro ao abrir WebVendas");
   }
 });
 
